@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   update:
@@ -24,3 +25,19 @@ jobs:
           git add docs/news.json
           git diff --cached --quiet || git commit -m "update news"
           git push
+      # 任何一步失敗時開（或補充）一個 Issue，訂閱此 repo 的人會收到 GitHub 通知。
+      # 已有未關閉的同名 Issue 就只留言，避免每天重複開新的。排查完後手動關閉即可。
+      - name: Open an issue if the update failed
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          title="飯店新聞自動更新失敗"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          existing=$(gh issue list --state open --search "$title in:title" --json number,title --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+          if [ -z "$existing" ]; then
+            gh issue create --title "$title" --body "每日新聞更新失敗，網站上的新聞可能已停止更新。請查看執行紀錄：$run_url"
+          else
+            gh issue comment "$existing" --body "再次失敗：$run_url"
+          fi

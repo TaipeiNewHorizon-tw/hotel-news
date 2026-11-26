@@ -48,6 +48,7 @@ def main():
     next_id = max([n["id"] for n in data["news"]] + [0]) + 1
 
     merged, seen = [], set()
+    failures = 0
     for kw in KEYWORDS:
         try:
             for item in parse_rss(fetch_rss(kw)):
@@ -55,9 +56,19 @@ def main():
                 if key not in seen:
                     seen.add(key)
                     merged.append(item)
-        except Exception as e:  # 單一關鍵字失敗不影響其他
-            print(f"抓取失敗（{kw}）：{e}", file=sys.stderr)
+        except Exception as e:  # 單一關鍵字失敗不影響其他，但會記成警告
+            failures += 1
+            print(f"::warning::抓取失敗（{kw}）：{e}", file=sys.stderr)
         time.sleep(1)
+
+    # 整體失敗要讓 workflow 變紅（才會觸發通知），而且不能更新 news.json 的「更新時間」去掩蓋問題。
+    if failures == len(KEYWORDS):
+        print("::error::所有關鍵字都抓取失敗，未更新 news.json。", file=sys.stderr)
+        return 1
+    if not merged:
+        # 以這些關鍵字，Google 新聞 RSS 一直都會回傳歷史新聞；完全沒有代表 RSS 格式可能改了。
+        print("::error::抓取成功但沒有解析出任何新聞，RSS 格式可能已改變，未更新 news.json。", file=sys.stderr)
+        return 1
 
     merged.sort(key=lambda x: x["dt"], reverse=True)
     fresh = [i for i in merged[:MAX_PER_RUN] if i["link"] not in known and i["title"] not in known]
@@ -78,7 +89,8 @@ def main():
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"新增 {len(fresh)} 則，共 {len(data['news'])} 則。")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
